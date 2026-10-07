@@ -1,0 +1,6 @@
+{
+  "name": "fresh-start",
+  "description": "The fresh-start mod: one press to write a handoff doc, clear, and continue.",
+  "owner": { "name": "razzamatazm" },
+  "plugins": [{ "name": "fresh-start", "source": "./" }]
+}
