@@ -15,6 +15,9 @@ test('/fresh writes a handoff, clears, then pre-fills the continue prompt', asyn
     return { text: e.text }
   })
   on('fs.exists', () => ({ value: true }))
+  on('fs.read', () => ({
+    value: '# Handoff\n\n## Next steps\n1. Rerun the suite\n\n## Continue prompt\nRebase PR #42 onto main, then rerun npm test.\nInvoke code-review once it is green.\n',
+  }))
   on('command.run', { command: 'clear' }, () => {
     ran.push('clear')
     return { text: '' }
@@ -31,12 +34,40 @@ test('/fresh writes a handoff, clears, then pre-fills the continue prompt', asyn
   expect(out.text).toContain(path)
   expect(submitted[0]).toContain(path)
   expect(submitted[0]).toContain('finish the PR')
+  expect(submitted[0]).toContain('## Continue prompt')
 
   await $.turn.complete(TURN)
   await clock.settle()
 
   expect(ran).toEqual(['clear'])
   expect(filled[0]).toContain(`Read the handoff doc at ${path}`)
+  expect(filled[0]).toContain('Rebase PR #42 onto main, then rerun npm test.')
+  expect(filled[0]).toContain('Invoke code-review once it is green.')
+  expect(filled[0]).not.toContain('Continue from where we left off')
+  expect(filled[0]).not.toContain('Rerun the suite')
+})
+
+test('a doc without a continue section falls back to the generic prompt', async ($, on) => {
+  const clock = mock.clock(on)
+  const filled: string[] = []
+
+  on('session.id', () => ({ value: 'abcdef1234' }))
+  on('prompt.submit', ($, e) => ({ text: e.text }))
+  on('fs.exists', () => ({ value: true }))
+  on('fs.read', () => ({ value: '# Handoff\n\n## Next steps\n1. Rerun the suite\n' }))
+  on('command.run', { command: 'clear' }, () => ({ text: '' }))
+  on('prompt.fill', ($, e) => {
+    filled.push(e.text)
+    return { isFilled: true }
+  })
+  on('turn.complete', () => ({ text: 'done' }))
+
+  await $.command.run({ ...RUN, command: 'fresh', args: '' })
+  await clock.settle()
+  await $.turn.complete(TURN)
+  await clock.settle()
+
+  expect(filled[0]).toContain('Continue from where we left off')
 })
 
 test('an interrupted handoff turn leaves the session alone', async ($, on) => {

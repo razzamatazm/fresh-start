@@ -6,6 +6,7 @@ import type { Phase } from '../types'
 const phase = atom({ plugin: 'fresh-start', key: 'phase' } as const, 'idle' as Phase)
 
 const HANDOFF_DIR = '/tmp/claude-handoffs'
+const CONTINUE_HEADING = 'Continue prompt'
 
 export function handoffPrompt(path: string, focus: string): string {
   const focusLine = focus
@@ -24,17 +25,46 @@ export function handoffPrompt(path: string, focus: string): string {
     '4. Decisions and constraints: calls already made (and by whom) that the next session must not re-litigate, plus gotchas hit along the way.',
     '5. Open questions: anything waiting on the user.',
     '6. Suggested skills: which skills the next session should invoke with the Skill tool, and when.',
+    `7. A final section headed exactly "## ${CONTINUE_HEADING}": the message the user will send to start the next session, written to that session in the second person. Two to five sentences specific to this work: the first concrete action (command, file, PR or issue by name), what to check still holds before acting, and which skills to invoke first. No generic advice, nothing after it.`,
     '',
     'Reference specs, plans, issues, commits and diffs by path or URL instead of copying them. Redact secrets and personal data. After writing, reply with one line: the path.',
   ].join('\n')
 }
 
-export function continuePrompt(path: string): string {
+// The body of the doc's continue section, up to the next heading; empty when it is missing.
+export function tailoredContinue(doc: string): string {
+  const lines = doc.split('\n')
+  const start = lines.findIndex(line => /^#{1,6}\s*continue prompt\s*$/i.test(line.trim()))
+  if (start === -1) {
+    return ''
+  }
+
+  const rest = lines.slice(start + 1)
+  const end = rest.findIndex(line => /^#{1,6}\s/.test(line))
+
+  return (end === -1 ? rest : rest.slice(0, end)).join('\n').trim()
+}
+
+export function continuePrompt(path: string, tailored = ''): string {
+  const read = `Read the handoff doc at ${path} in full before doing anything else.`
+  const guard = 'If anything in the doc no longer matches reality, tell me what changed before acting on it.'
+  if (tailored) {
+    return [read, tailored, guard].join(' ')
+  }
+
   return [
-    `Continue from where we left off. Read the handoff doc at ${path} in full before doing anything else.`,
+    `Continue from where we left off. ${read}`,
     'Treat its decisions as settled, check that the current state it describes still holds (git status, branch, open PRs), invoke the skills it suggests, then pick up with its first next step.',
-    'If anything in the doc no longer matches reality, tell me what changed before acting on it.',
+    guard,
   ].join(' ')
+}
+
+async function readTailored($: EngineInterface, path: string): Promise<string> {
+  try {
+    return tailoredContinue(await $.fs.read(path))
+  } catch {
+    return ''
+  }
 }
 
 // The handoff in flight; a reload mid-handoff drops it and the band offers the button again.
@@ -93,8 +123,9 @@ export const register: Register = on => {
     $.clock.after(0, () => {
       void (async () => {
         try {
+          const tailored = await readTailored($, path)
           await $.command.run({ command: 'clear' })
-          await $.prompt.fill({ text: continuePrompt(path) })
+          await $.prompt.fill({ text: continuePrompt(path, tailored) })
           $.ui.toast('Fresh session ready. Press Enter to continue.')
         } catch (error) {
           $.ui.toast(`Clear failed: ${String(error)}. Handoff is at ${path}`)

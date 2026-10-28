@@ -1,6 +1,6 @@
 {
   "name": "fresh-start",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "One press: write a handoff doc, /clear, and pre-fill a prompt to continue from it.",
   "author": { "name": "razzamatazm" },
   "repository": "https://github.com/razzamatazm/fresh-start",
